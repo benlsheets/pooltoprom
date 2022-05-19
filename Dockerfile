@@ -1,7 +1,8 @@
 FROM golang:1.18.2
 
-WORKDIR /workspace
+WORKDIR /usr/src/app
 
+COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
 RUN go build -v -o /usr/local/bin/pooltoprom ./...
