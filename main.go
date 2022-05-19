@@ -25,7 +25,7 @@ func recordMetrics() {
 		var account_info Account
 		worker_info := make(map[string]Worker)
 
-		requestURL := fmt.Sprintf("https://%s/%s", *poolURL, *wallet)
+		requestURL := fmt.Sprintf("https://%s/api/accounts/%s", *poolURL, *wallet)
 		req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 		if err != nil {
 			log.Fatal(err)
@@ -60,13 +60,13 @@ func recordMetrics() {
 					data := value.(map[string]interface{})
 
 					account_info.BalancePaid = data["paid"].(float64) / ScalingFactor
-					pool_balance_paid.Set(account_info.BalancePaid)
+					pool_balance_paid.With(prometheus.Labels{"pool": *poolURL}).Set(account_info.BalancePaid)
 
 					account_info.BalanceUnpaid = data["balance"].(float64) / ScalingFactor
-					pool_balance_unpaid.Set(account_info.BalanceUnpaid)
+					pool_balance_unpaid.With(prometheus.Labels{"pool": *poolURL}).Set(account_info.BalanceUnpaid)
 
 					account_info.BalanceUnconfirmed = data["immature"].(float64) / ScalingFactor
-					pool_balance_unconfirmed.Set(account_info.BalanceUnconfirmed)
+					pool_balance_unconfirmed.With(prometheus.Labels{"pool": *poolURL}).Set(account_info.BalanceUnconfirmed)
 
 				case "workers":
 					worker_list := value.(map[string]interface{})
@@ -82,17 +82,17 @@ func recordMetrics() {
 						temp_worker.SharesInvalid = data["sharesInvalid"].(float64)
 						temp_worker.SharesStale = data["sharesStale"].(float64)
 
-						pool_hashrate_current.With(prometheus.Labels{"worker": worker}).Set(temp_worker.CurrentHashrate)
+						pool_hashrate_current.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.CurrentHashrate)
 
-						pool_hashrate_average.With(prometheus.Labels{"worker": worker}).Set(temp_worker.AverageHashrate)
+						pool_hashrate_average.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.AverageHashrate)
 
-						pool_hashrate_reported.With(prometheus.Labels{"worker": worker}).Set(temp_worker.ReportedHashrate)
+						pool_hashrate_reported.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.ReportedHashrate)
 
-						pool_shares_valid.With(prometheus.Labels{"worker": worker}).Add(temp_worker.SharesValid - worker_info[worker].SharesValid)
+						pool_shares_valid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(temp_worker.SharesValid - worker_info[worker].SharesValid)
 
-						pool_shares_invalid.With(prometheus.Labels{"worker": worker}).Add(temp_worker.SharesInvalid - worker_info[worker].SharesInvalid)
+						pool_shares_invalid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(temp_worker.SharesInvalid - worker_info[worker].SharesInvalid)
 
-						pool_shares_stale.With(prometheus.Labels{"worker": worker}).Add(temp_worker.SharesStale - worker_info[worker].SharesStale)
+						pool_shares_stale.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(temp_worker.SharesStale - worker_info[worker].SharesStale)
 
 						worker_info[worker] = temp_worker
 
@@ -106,61 +106,67 @@ func recordMetrics() {
 }
 
 var (
-	pool_balance_paid = promauto.NewGauge(prometheus.GaugeOpts{
+	pool_balance_paid = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_balance_paid",
 		Help: "Balance paid from pool",
-	})
+	},
+		[]string{"pool"},
+	)
 
-	pool_balance_unpaid = promauto.NewGauge(prometheus.GaugeOpts{
+	pool_balance_unpaid = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_balance_unpaid",
 		Help: "Unpaid balance on pool",
-	})
+	},
+		[]string{"pool"},
+	)
 
-	pool_balance_unconfirmed = promauto.NewGauge(prometheus.GaugeOpts{
+	pool_balance_unconfirmed = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_balance_unconfirmed",
 		Help: "Unconfirmed balance on pool",
-	})
+	},
+		[]string{"pool"},
+	)
 
 	pool_hashrate_current = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_hashrate_current",
 		Help: "Current Worker Hashrates",
 	},
-		[]string{"worker"},
+		[]string{"pool", "worker"},
 	)
 
 	pool_hashrate_average = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_hashrate_average",
 		Help: "Average Worker Hashrates",
 	},
-		[]string{"worker"},
+		[]string{"pool", "worker"},
 	)
 
 	pool_hashrate_reported = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_hashrate_reported",
 		Help: "Reported Worker Hashrates",
 	},
-		[]string{"worker"},
+		[]string{"pool", "worker"},
 	)
 
 	pool_shares_valid = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "pool_shares_valid",
 		Help: "Valid Worker Shares",
 	},
-		[]string{"worker"},
+		[]string{"pool", "worker"},
 	)
 
 	pool_shares_invalid = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "pool_shares_invalid",
 		Help: "Invalid Worker Shares",
 	},
-		[]string{"worker"},
+		[]string{"pool", "worker"},
 	)
 
 	pool_shares_stale = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "pool_shares_stale",
 		Help: "Stale Worker Shares",
 	},
-		[]string{"worker"},
+		[]string{"pool", "worker"},
 	)
 )
 
