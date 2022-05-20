@@ -88,11 +88,23 @@ func recordMetrics() {
 
 						pool_hashrate_reported.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.ReportedHashrate)
 
-						pool_shares_valid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(temp_worker.SharesValid - worker_info[worker].SharesValid)
+						if share_diff := temp_worker.SharesValid - worker_info[worker].SharesValid; share_diff >= 0 {
+							pool_shares_valid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
+						} else {
+							log.Println("WARN: Valid shares decreased.", worker_info[worker].SharesValid, "->", temp_worker.SharesValid)
+						}
 
-						pool_shares_invalid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(temp_worker.SharesInvalid - worker_info[worker].SharesInvalid)
+						if share_diff := temp_worker.SharesInvalid - worker_info[worker].SharesInvalid; share_diff >= 0 {
+							pool_shares_invalid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
+						} else {
+							log.Println("WARN: Invalid shares decreased.", worker_info[worker].SharesInvalid, "->", temp_worker.SharesInvalid)
+						}
 
-						pool_shares_stale.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(temp_worker.SharesStale - worker_info[worker].SharesStale)
+						if share_diff := temp_worker.SharesStale - worker_info[worker].SharesStale; share_diff >= 0 {
+							pool_shares_stale.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
+						} else {
+							log.Println("WARN: Stale shares decreased.", worker_info[worker].SharesStale, "->", temp_worker.SharesStale)
+						}
 
 						worker_info[worker] = temp_worker
 
