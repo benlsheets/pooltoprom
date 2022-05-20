@@ -35,18 +35,18 @@ func recordMetrics() {
 		for {
 			res, err := http.DefaultClient.Do(req)
 			if err != nil {
-				log.Fatal(err)
+				log.Println("WARN: Error sending API request.", err)
 			}
 
 			resBody, err := ioutil.ReadAll(res.Body)
 			if err != nil {
-				log.Fatal(err)
+				log.Println("WARN: Error reading API response.", err)
 			}
 
 			var f interface{}
 			err = json.Unmarshal(resBody, &f)
 			if err != nil {
-				log.Fatal(err)
+				log.Println("WARN: Error parsing API response.", err)
 			}
 
 			m := f.(map[string]interface{})
