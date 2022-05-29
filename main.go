@@ -21,42 +21,49 @@ var (
 
 	pool_balance_paid = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_balance_paid",
-		Help: "Balance paid from pool",
+		Help: "Balance paid from pool (COINe-9)",
 	},
 		[]string{"pool"},
 	)
 
 	pool_balance_unpaid = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_balance_unpaid",
-		Help: "Unpaid balance on pool",
+		Help: "Unpaid balance on pool (COINe-9)",
 	},
 		[]string{"pool"},
 	)
 
 	pool_balance_unconfirmed = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_balance_unconfirmed",
-		Help: "Unconfirmed balance on pool",
+		Help: "Unconfirmed balance on pool (COINe-9)",
+	},
+		[]string{"pool"},
+	)
+
+	pool_rewards = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "pool_rewards",
+		Help: "Total pool rewards (COINe-9)",
 	},
 		[]string{"pool"},
 	)
 
 	pool_hashrate_current = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_hashrate_current",
-		Help: "Current Worker Hashrates",
+		Help: "Current Worker Hashrate (H/s)",
 	},
 		[]string{"pool", "worker"},
 	)
 
 	pool_hashrate_average = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_hashrate_average",
-		Help: "Average Worker Hashrates",
+		Help: "Average Worker Hashrate (H/s)",
 	},
 		[]string{"pool", "worker"},
 	)
 
 	pool_hashrate_reported = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pool_hashrate_reported",
-		Help: "Reported Worker Hashrates",
+		Help: "Reported Worker Hashrate (H/s)",
 	},
 		[]string{"pool", "worker"},
 	)
@@ -81,6 +88,8 @@ var (
 	},
 		[]string{"pool", "worker"},
 	)
+
+	pool_info Pool
 
 	worker_info = make(map[string]Worker)
 )
@@ -123,20 +132,31 @@ func ParseJSONresponse(response *http.Response) {
 
 	for key, value := range m {
 		switch key {
-		case "rewards":
-			// fmt.Println(key, "\n", value)
 
 		case "stats":
 			data := value.(map[string]interface{})
 
-			balance_paid := data["paid"].(float64) / ScalingFactor
-			pool_balance_paid.With(prometheus.Labels{"pool": *poolURL}).Set(balance_paid)
+			temp_pool := Pool{}
+			temp_pool.BalancePaid = data["paid"].(float64)
+			temp_pool.BalanceUnpaid = data["balance"].(float64)
+			temp_pool.BalanceUnconfirmed = data["immature"].(float64)
 
-			balance_unpaid := data["balance"].(float64) / ScalingFactor
-			pool_balance_unpaid.With(prometheus.Labels{"pool": *poolURL}).Set(balance_unpaid)
+			pool_balance_paid.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalancePaid)
 
-			balance_unconfirmed := data["immature"].(float64) / ScalingFactor
-			pool_balance_unconfirmed.With(prometheus.Labels{"pool": *poolURL}).Set(balance_unconfirmed)
+			pool_balance_unpaid.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalanceUnpaid)
+
+			pool_balance_unconfirmed.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalanceUnconfirmed)
+
+			temp_rewards_total := temp_pool.BalancePaid + temp_pool.BalanceUnpaid + temp_pool.BalanceUnconfirmed
+			pool_rewards_total := pool_info.BalancePaid + pool_info.BalanceUnpaid + pool_info.BalanceUnconfirmed
+
+			if reward_diff := temp_rewards_total - pool_rewards_total; reward_diff >= 0 {
+				pool_rewards.With(prometheus.Labels{"pool": *poolURL}).Add(reward_diff)
+			} else {
+				log.Println("WARN: Pool rewards decreased.", pool_rewards_total, "->", temp_rewards_total)
+			}
+
+			pool_info = temp_pool
 
 		case "workers":
 			worker_list := value.(map[string]interface{})
@@ -192,6 +212,12 @@ func main() {
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
 
+type Pool struct {
+	BalancePaid        float64
+	BalanceUnpaid      float64
+	BalanceUnconfirmed float64
+}
+
 type Worker struct {
 	CurrentHashrate  float64
 	AverageHashrate  float64
@@ -200,5 +226,3 @@ type Worker struct {
 	SharesInvalid    float64
 	SharesStale      float64
 }
-
-const ScalingFactor float64 = 1e9
