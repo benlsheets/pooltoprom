@@ -122,81 +122,118 @@ func ParseJSONresponse(response *http.Response) {
 		log.Println("WARN: Error reading API response.", err)
 	}
 
-	var f interface{}
-	err = json.Unmarshal(resBody, &f)
+	var json_data interface{}
+	err = json.Unmarshal(resBody, &json_data)
 	if err != nil {
 		log.Println("WARN: Error parsing API response.", err)
 	}
 
-	m := f.(map[string]interface{})
+	json_map, ok := json_data.(map[string]interface{})
+	if !ok {
+		log.Println("WARN: Invalid JSON formatting in API response.", err)
+		return
+	}
 
-	for key, value := range m {
+	for key, value := range json_map {
 		switch key {
 
 		case "stats":
-			data := value.(map[string]interface{})
+			if data, ok := value.(map[string]interface{}); ok {
+				temp_pool := Pool{}
 
-			temp_pool := Pool{}
-			temp_pool.BalancePaid = data["paid"].(float64)
-			temp_pool.BalanceUnpaid = data["balance"].(float64)
-			temp_pool.BalanceUnconfirmed = data["immature"].(float64)
+				if temp_pool.BalancePaid, ok = data["paid"].(float64); ok {
+					pool_balance_paid.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalancePaid)
+				} else {
+					log.Println("WARN: Invalid JSON formatting in paid balance field.")
+				}
 
-			pool_balance_paid.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalancePaid)
+				if temp_pool.BalanceUnpaid, ok = data["balance"].(float64); ok {
+					pool_balance_unpaid.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalanceUnpaid)
+				} else {
+					log.Println("WARN: Invalid JSON formatting in unpaid balance field.")
+				}
 
-			pool_balance_unpaid.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalanceUnpaid)
+				if temp_pool.BalanceUnconfirmed, ok = data["immature"].(float64); ok {
+					pool_balance_unconfirmed.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalanceUnconfirmed)
+				} else {
+					log.Println("WARN: Invalid JSON formatting in unconfirmed balance field.")
+				}
 
-			pool_balance_unconfirmed.With(prometheus.Labels{"pool": *poolURL}).Set(temp_pool.BalanceUnconfirmed)
+				temp_rewards_total := temp_pool.BalancePaid + temp_pool.BalanceUnpaid + temp_pool.BalanceUnconfirmed
+				pool_rewards_total := pool_info.BalancePaid + pool_info.BalanceUnpaid + pool_info.BalanceUnconfirmed
 
-			temp_rewards_total := temp_pool.BalancePaid + temp_pool.BalanceUnpaid + temp_pool.BalanceUnconfirmed
-			pool_rewards_total := pool_info.BalancePaid + pool_info.BalanceUnpaid + pool_info.BalanceUnconfirmed
+				if reward_diff := temp_rewards_total - pool_rewards_total; reward_diff >= 0 {
+					pool_rewards.With(prometheus.Labels{"pool": *poolURL}).Add(reward_diff)
+				} else {
+					log.Println("WARN: Pool rewards decreased.", pool_rewards_total, "->", temp_rewards_total)
+				}
 
-			if reward_diff := temp_rewards_total - pool_rewards_total; reward_diff >= 0 {
-				pool_rewards.With(prometheus.Labels{"pool": *poolURL}).Add(reward_diff)
+				pool_info = temp_pool
 			} else {
-				log.Println("WARN: Pool rewards decreased.", pool_rewards_total, "->", temp_rewards_total)
+				log.Println("WARN: Invalid JSON formatting in statistics field.")
 			}
 
-			pool_info = temp_pool
-
 		case "workers":
-			worker_list := value.(map[string]interface{})
+			if worker_list, ok := value.(map[string]interface{}); ok {
+				for worker, worker_data := range worker_list {
+					if data, ok := worker_data.(map[string]interface{}); ok {
+						temp_worker := Worker{}
 
-			for worker, worker_data := range worker_list {
-				data := worker_data.(map[string]interface{})
+						if temp_worker.CurrentHashrate, ok = data["hr"].(float64); ok {
+							pool_hashrate_current.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.CurrentHashrate)
+						} else {
+							log.Println("WARN: Invalid JSON formatting in worker current hashrate field.")
+						}
 
-				temp_worker := Worker{}
-				temp_worker.CurrentHashrate = data["hr"].(float64)
-				temp_worker.AverageHashrate = data["hr2"].(float64)
-				temp_worker.ReportedHashrate = data["rhr"].(float64)
-				temp_worker.SharesValid = data["sharesValid"].(float64)
-				temp_worker.SharesInvalid = data["sharesInvalid"].(float64)
-				temp_worker.SharesStale = data["sharesStale"].(float64)
+						if temp_worker.AverageHashrate, ok = data["hr2"].(float64); ok {
+							pool_hashrate_average.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.AverageHashrate)
+						} else {
+							log.Println("WARN: Invalid JSON formatting in worker average hashrate field.")
+						}
 
-				pool_hashrate_current.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.CurrentHashrate)
+						if temp_worker.ReportedHashrate, ok = data["rhr"].(float64); ok {
+							pool_hashrate_reported.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.ReportedHashrate)
+						} else {
+							log.Println("WARN: Invalid JSON formatting in worker reported hashrate field.")
+						}
 
-				pool_hashrate_average.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.AverageHashrate)
+						if temp_worker.SharesValid, ok = data["sharesValid"].(float64); ok {
+							if share_diff := temp_worker.SharesValid - worker_info[worker].SharesValid; share_diff >= 0 {
+								pool_shares_valid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
+							} else {
+								log.Println("WARN: Valid shares decreased.", worker_info[worker].SharesValid, "->", temp_worker.SharesValid)
+							}
+						} else {
+							log.Println("WARN: Invalid JSON formatting in worker valid shares field.")
+						}
 
-				pool_hashrate_reported.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Set(temp_worker.ReportedHashrate)
+						if temp_worker.SharesInvalid, ok = data["sharesInvalid"].(float64); ok {
+							if share_diff := temp_worker.SharesInvalid - worker_info[worker].SharesInvalid; share_diff >= 0 {
+								pool_shares_invalid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
+							} else {
+								log.Println("WARN: Invalid shares decreased.", worker_info[worker].SharesInvalid, "->", temp_worker.SharesInvalid)
+							}
+						} else {
+							log.Println("WARN: Invalid JSON formatting in worker invalid shares field.")
+						}
 
-				if share_diff := temp_worker.SharesValid - worker_info[worker].SharesValid; share_diff >= 0 {
-					pool_shares_valid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
-				} else {
-					log.Println("WARN: Valid shares decreased.", worker_info[worker].SharesValid, "->", temp_worker.SharesValid)
+						if temp_worker.SharesStale, ok = data["sharesStale"].(float64); ok {
+							if share_diff := temp_worker.SharesStale - worker_info[worker].SharesStale; share_diff >= 0 {
+								pool_shares_stale.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
+							} else {
+								log.Println("WARN: Stale shares decreased.", worker_info[worker].SharesStale, "->", temp_worker.SharesStale)
+							}
+						} else {
+							log.Println("WARN: Invalid JSON formatting in worker stale shares field.")
+						}
+
+						worker_info[worker] = temp_worker
+					} else {
+						log.Println("WARN: Invalid JSON formatting in worker data field.")
+					}
 				}
-
-				if share_diff := temp_worker.SharesInvalid - worker_info[worker].SharesInvalid; share_diff >= 0 {
-					pool_shares_invalid.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
-				} else {
-					log.Println("WARN: Invalid shares decreased.", worker_info[worker].SharesInvalid, "->", temp_worker.SharesInvalid)
-				}
-
-				if share_diff := temp_worker.SharesStale - worker_info[worker].SharesStale; share_diff >= 0 {
-					pool_shares_stale.With(prometheus.Labels{"pool": *poolURL, "worker": worker}).Add(share_diff)
-				} else {
-					log.Println("WARN: Stale shares decreased.", worker_info[worker].SharesStale, "->", temp_worker.SharesStale)
-				}
-
-				worker_info[worker] = temp_worker
+			} else {
+				log.Println("WARN: Invalid JSON formatting in workers field.")
 			}
 		default:
 		}
